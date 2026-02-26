@@ -1,0 +1,9 @@
+# Deploy to Railway; set RETELL_API_KEY (required) and optional RETELL_AGENT_ID.
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node index.mjs"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
