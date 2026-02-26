@@ -6,13 +6,35 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Log every request (shows in Railway stdout)
+const log = (msg, req) => {
+  const method = req?.method ?? "";
+  const path = req?.path ?? req?.url ?? "";
+  console.log(`[Clara server] ${msg} ${method} ${path}`);
+};
+app.use((req, res, next) => {
+  log("→", req);
+  next();
+});
+
+// Health check so you can confirm the Node app is the one responding
+app.get("/", (req, res) => {
+  log("GET /", req);
+  res.json({ ok: true, service: "clara-server", path: req.path });
+});
+app.get("/health", (req, res) => {
+  res.json({ ok: true, service: "clara-server" });
+});
+
 const RETELL_API_BASE = "https://api.retellai.com/v2";
 
 app.post("/api/create-web-call", async (req, res) => {
+  log("POST /api/create-web-call", req);
   const apiKey = process.env.RETELL_API_KEY;
   const agentId = process.env.RETELL_AGENT_ID || "+14313404488";
 
   if (!apiKey) {
+    console.log("[Clara server] RETELL_API_KEY not set");
     return res.status(500).json({
       error: "RETELL_API_KEY is not set on the server",
     });
@@ -50,15 +72,21 @@ app.post("/api/create-web-call", async (req, res) => {
       raw: data,
     });
   } catch (err) {
-    console.error("Error creating Retell web call:", err);
+    console.error("[Clara server] Retell error:", err);
     return res.status(500).json({
       error: "Unexpected error while creating Retell web call",
     });
   }
 });
 
+// Log 404s so we know if something else is handling the request
+app.use((req, res) => {
+  log("404", req);
+  res.status(404).json({ error: "Not found", path: req.path });
+});
+
 const port = process.env.PORT || process.env.SERVER_PORT || 8787;
 
 app.listen(port, () => {
-  console.log(`Retell web-call backend listening on http://localhost:${port}`);
+  console.log(`[Clara server] listening on port ${port}`);
 });
