@@ -53,11 +53,17 @@ app.post("/api/create-web-call", async (req, res) => {
           source: "lp",
           ...((req.body && req.body.metadata) || {}),
         },
+        // Agent speaks first (greeting); works for both Retell LLM and Conversation Flow
+        agent_override: {
+          retell_llm: { start_speaker: "agent" },
+          conversation_flow: { start_speaker: "agent" },
+        },
       }),
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
+      console.log("[Clara server] Retell API error:", response.status, errorBody);
       return res.status(response.status).json({
         error: "Failed to create web call with Retell",
         status: response.status,
