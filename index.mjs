@@ -11,7 +11,25 @@ const SUPERUSER_EMAIL = (process.env.SUPERUSER_EMAIL ?? "vlad@curate222.com").tr
 const ONBOARDING_SECRET = process.env.ONBOARDING_SECRET ?? "clara-onboarding-salt";
 const SESSION_COOKIE = "onboarding_session";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+/** If set (e.g. .claraforclinics.com), cookie is shared with app subdomain — use when API is at api.claraforclinics.com */
+const COOKIE_DOMAIN = (process.env.COOKIE_DOMAIN || "").trim() || undefined;
 const sessions = new Map(); // token -> { createdAt, type, onboardingId }
+
+function getCookieOptions() {
+  const opts = {
+    httpOnly: true,
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+    secure: true,
+  };
+  if (COOKIE_DOMAIN) {
+    opts.domain = COOKIE_DOMAIN;
+    opts.sameSite = "lax"; // same-site (app + api on claraforclinics.com)
+  } else {
+    opts.sameSite = "none"; // cross-origin (API on different domain)
+  }
+  return opts;
+}
 
 function createSession(type = "operator", onboardingId = null) {
   const token = randomBytes(32).toString("hex");
@@ -156,13 +174,7 @@ app.post("/api/onboarding/login", (req, res) => {
     return res.status(401).json({ error: "Invalid email or password" });
   }
   const token = createSession("operator");
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    maxAge: SESSION_TTL_MS,
-    sameSite: "none",
-    secure: true,
-    path: "/",
-  });
+  res.cookie(SESSION_COOKIE, token, getCookieOptions());
   res.json({ ok: true });
 });
 
@@ -185,20 +197,14 @@ app.post("/api/onboarding/client-login", (req, res) => {
     return res.status(401).json({ error: "Invalid email or password" });
   }
   const token = createSession("client", onboarding_id);
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    maxAge: SESSION_TTL_MS,
-    sameSite: "none",
-    secure: true,
-    path: "/",
-  });
+  res.cookie(SESSION_COOKIE, token, getCookieOptions());
   res.json({ ok: true });
 });
 
 app.post("/api/onboarding/logout", (req, res) => {
   const token = getSessionToken(req);
   if (token) sessions.delete(token);
-  res.clearCookie(SESSION_COOKIE, { path: "/", sameSite: "none", secure: true });
+  res.clearCookie(SESSION_COOKIE, { path: "/", ...getCookieOptions() });
   res.json({ ok: true });
 });
 
