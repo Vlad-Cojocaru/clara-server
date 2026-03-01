@@ -15,6 +15,11 @@ Minimal backend for Clara LP: creates Retell web calls via `/api/create-web-call
    - **GHL_ONBOARDING_WEBHOOK_URL** (optional, POST onboarding payload on submit)
    - **GHL_AGREEMENT_WEBHOOK_URL** (optional, POST agreement data on submit)
 
+## Database
+
+- **Local / no DATABASE_URL:** SQLite is used. Data is stored in `./data/clara.sqlite` (or **SQLITE_PATH**). The `data/` directory is gitignored.
+- **Production (Railway):** Set **DATABASE_URL** to a PostgreSQL connection string. The server will use PostgreSQL so data persists across redeploys. Tables are created automatically on startup.
+
 ## Run
 
 - `npm start` — run server (port 8787 or `PORT` / `SERVER_PORT`)
@@ -22,6 +27,6 @@ Minimal backend for Clara LP: creates Retell web calls via `/api/create-web-call
 
 ## Deploy (Railway)
 
-Connect this repo to Railway. Set variables `RETELL_API_KEY` and optionally `RETELL_AGENT_ID`. The repo’s `railway.toml` configures the start command.
+Connect the repo to Railway and set env vars (`RETELL_API_KEY`, `ONBOARDING_PASSWORD`, etc.). **Add PostgreSQL:** In the Railway project, click **+ New** → **Database** → **PostgreSQL**; Railway will add **DATABASE_URL** to your service. The server uses it when set and creates tables on first run. The repo’s `railway.toml` configures the start command.
 
 The Clara LP frontend should call this backend by setting **VITE_API_URL** to this service’s public URL (e.g. `https://clara-server-production.up.railway.app`).

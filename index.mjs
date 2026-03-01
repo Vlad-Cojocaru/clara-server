@@ -178,13 +178,13 @@ app.post("/api/onboarding/login", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/onboarding/client-login", (req, res) => {
+app.post("/api/onboarding/client-login", async (req, res) => {
   const { onboarding_id, email, password } = req.body || {};
   if (!onboarding_id || !email || !password) {
     return res.status(400).json({ error: "onboarding_id, email, and password required" });
   }
-  const storedEmail = db.getClientEmail(onboarding_id);
-  const storedHash = db.getClientPasswordHash(onboarding_id);
+  const storedEmail = await db.getClientEmail(onboarding_id);
+  const storedHash = await db.getClientPasswordHash(onboarding_id);
   if (!storedHash || !storedEmail) {
     return res.status(401).json({ error: "Invalid access" });
   }
@@ -220,18 +220,18 @@ app.get("/api/onboarding/session", (req, res) => {
   });
 });
 
-app.get("/api/onboarding", requireOperator, (req, res) => {
-  const list = db.listOnboardings();
+app.get("/api/onboarding", requireOperator, async (req, res) => {
+  const list = await db.listOnboardings();
   res.json(list);
 });
 
-app.post("/api/onboarding/create", requireOperator, (req, res) => {
-  const onboarding_id = db.createOnboarding();
+app.post("/api/onboarding/create", requireOperator, async (req, res) => {
+  const onboarding_id = await db.createOnboarding();
   res.status(201).json({ onboarding_id });
 });
 
-app.get("/api/onboarding/:id", requireDraftAccess, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.get("/api/onboarding/:id", requireDraftAccess, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   const session = getSessionData(getSessionToken(req));
   const payload = {
@@ -252,15 +252,15 @@ app.get("/api/onboarding/:id", requireDraftAccess, (req, res) => {
   res.json(payload);
 });
 
-app.patch("/api/onboarding/:id", requireDraftAccess, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.patch("/api/onboarding/:id", requireDraftAccess, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Cannot update submitted onboarding" });
   }
   const existing = record.payload_json || {};
   const merged = { ...existing, ...(req.body || {}) };
-  const updated = db.updateOnboarding(req.params.id, merged);
+  const updated = await db.updateOnboarding(req.params.id, merged);
   if (!updated) return res.status(400).json({ error: "Update failed" });
   res.json({
     onboarding_id: updated.onboarding_id,
@@ -271,8 +271,8 @@ app.patch("/api/onboarding/:id", requireDraftAccess, (req, res) => {
   });
 });
 
-app.patch("/api/onboarding/:id/client-password", requireOperator, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.patch("/api/onboarding/:id/client-password", requireOperator, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Cannot set client password on submitted onboarding" });
@@ -281,12 +281,12 @@ app.patch("/api/onboarding/:id/client-password", requireOperator, (req, res) => 
   const hash = client_password != null && String(client_password).trim() !== ""
     ? hashClientPassword(String(client_password).trim())
     : null;
-  db.setClientPassword(req.params.id, hash);
+  await db.setClientPassword(req.params.id, hash);
   res.json({ ok: true });
 });
 
-app.patch("/api/onboarding/:id/client-access", requireOperator, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.patch("/api/onboarding/:id/client-access", requireOperator, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Cannot set client access on submitted onboarding" });
@@ -301,7 +301,7 @@ app.patch("/api/onboarding/:id/client-access", requireOperator, (req, res) => {
   const emailTrimmed = client_email.trim();
   const pwdTrimmed = client_password.trim();
   const hash = hashClientPassword(pwdTrimmed);
-  db.setClientAccess(req.params.id, {
+  await db.setClientAccess(req.params.id, {
     clientEmail: emailTrimmed,
     hashedPassword: hash,
     plainPassword: pwdTrimmed,
@@ -309,8 +309,8 @@ app.patch("/api/onboarding/:id/client-access", requireOperator, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/onboarding/:id/agreement", requireDraftAccess, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.get("/api/onboarding/:id/agreement", requireDraftAccess, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   res.json({
     agreement_signed_by_operator_at: record.agreement_signed_by_operator_at ?? null,
@@ -325,14 +325,14 @@ app.get("/api/onboarding/:id/agreement", requireDraftAccess, (req, res) => {
   });
 });
 
-app.post("/api/onboarding/:id/agreement/sign-operator", requireOperator, (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+app.post("/api/onboarding/:id/agreement/sign-operator", requireOperator, async (req, res) => {
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Cannot sign agreement on submitted onboarding" });
   }
   const { name, title, pricing_option } = req.body || {};
-  const result = db.signAgreementOperator(req.params.id, {
+  const result = await db.signAgreementOperator(req.params.id, {
     name: name?.trim() || null,
     title: title?.trim() || null,
     pricingOption: pricing_option === "100_per_appointment" ? "100_per_appointment" : "497_month",
@@ -341,18 +341,18 @@ app.post("/api/onboarding/:id/agreement/sign-operator", requireOperator, (req, r
   res.json({ ok: true, signed_at: result.signedAt });
 });
 
-app.post("/api/onboarding/:id/agreement/sign-client", requireDraftAccess, (req, res) => {
+app.post("/api/onboarding/:id/agreement/sign-client", requireDraftAccess, async (req, res) => {
   const data = getSessionData(getSessionToken(req));
   if (!data || data.type !== "client" || data.onboardingId !== req.params.id) {
     return res.status(403).json({ error: "Client access required" });
   }
-  const record = db.getOnboarding(req.params.id);
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Cannot sign agreement on submitted onboarding" });
   }
   const { name, title, client_address } = req.body || {};
-  const result = db.signAgreementClient(req.params.id, {
+  const result = await db.signAgreementClient(req.params.id, {
     name: name?.trim() || null,
     title: title?.trim() || null,
     clientAddress: client_address?.trim() || null,
@@ -448,7 +448,7 @@ function shouldStartLaunchClock(payload) {
 }
 
 app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
-  const record = db.getOnboarding(req.params.id);
+  const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Already submitted" });
@@ -469,7 +469,7 @@ app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
   const infoCompleteAt = infoComplete ? now : null;
   const launchClockStartAt = startLaunchClock ? now : null;
 
-  db.submitOnboarding(req.params.id, merged, {
+  await db.submitOnboarding(req.params.id, merged, {
     infoCompleteAt,
     launchClockStartAt,
   });
