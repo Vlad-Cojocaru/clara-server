@@ -7,6 +7,7 @@ import * as db from "./db.mjs";
 const app = express();
 
 const ONBOARDING_PASSWORD = process.env.ONBOARDING_PASSWORD ?? "claraOnboardingFlow";
+const SUPERUSER_EMAIL = (process.env.SUPERUSER_EMAIL ?? "vlad@curate222.com").trim().toLowerCase();
 const ONBOARDING_SECRET = process.env.ONBOARDING_SECRET ?? "clara-onboarding-salt";
 const SESSION_COOKIE = "onboarding_session";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -146,9 +147,13 @@ app.post("/api/create-web-call", async (req, res) => {
 // --- Onboarding API (password-protected) ---
 
 app.post("/api/onboarding/login", (req, res) => {
-  const { password } = req.body || {};
-  if (password !== ONBOARDING_PASSWORD) {
-    return res.status(401).json({ error: "Invalid password" });
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password required" });
+  }
+  const emailNorm = String(email).trim().toLowerCase();
+  if (emailNorm !== SUPERUSER_EMAIL || password !== ONBOARDING_PASSWORD) {
+    return res.status(401).json({ error: "Invalid email or password" });
   }
   const token = createSession("operator");
   res.cookie(SESSION_COOKIE, token, {
@@ -161,17 +166,22 @@ app.post("/api/onboarding/login", (req, res) => {
 });
 
 app.post("/api/onboarding/client-login", (req, res) => {
-  const { onboarding_id, password } = req.body || {};
-  if (!onboarding_id || !password) {
-    return res.status(400).json({ error: "onboarding_id and password required" });
+  const { onboarding_id, email, password } = req.body || {};
+  if (!onboarding_id || !email || !password) {
+    return res.status(400).json({ error: "onboarding_id, email, and password required" });
   }
+  const storedEmail = db.getClientEmail(onboarding_id);
   const storedHash = db.getClientPasswordHash(onboarding_id);
-  if (!storedHash) {
+  if (!storedHash || !storedEmail) {
     return res.status(401).json({ error: "Invalid access" });
+  }
+  const emailNorm = String(email).trim().toLowerCase();
+  if (emailNorm !== storedEmail.trim().toLowerCase()) {
+    return res.status(401).json({ error: "Invalid email or password" });
   }
   const inputHash = hashClientPassword(password);
   if (inputHash !== storedHash) {
-    return res.status(401).json({ error: "Invalid password" });
+    return res.status(401).json({ error: "Invalid email or password" });
   }
   const token = createSession("client", onboarding_id);
   res.cookie(SESSION_COOKIE, token, {
@@ -180,6 +190,13 @@ app.post("/api/onboarding/client-login", (req, res) => {
     sameSite: "lax",
     path: "/",
   });
+  res.json({ ok: true });
+});
+
+app.post("/api/onboarding/logout", (req, res) => {
+  const token = getSessionToken(req);
+  if (token) sessions.delete(token);
+  res.clearCookie(SESSION_COOKIE, { path: "/" });
   res.json({ ok: true });
 });
 
@@ -218,6 +235,7 @@ app.get("/api/onboarding/:id", requireDraftAccess, (req, res) => {
     info_complete_at: record.info_complete_at,
     launch_clock_start_at: record.launch_clock_start_at,
     has_client_password: record.has_client_password ?? false,
+    client_email: record.client_email ?? null,
   });
 });
 
@@ -252,6 +270,77 @@ app.patch("/api/onboarding/:id/client-password", requireOperator, (req, res) => 
     : null;
   db.setClientPassword(req.params.id, hash);
   res.json({ ok: true });
+});
+
+app.patch("/api/onboarding/:id/client-access", requireOperator, (req, res) => {
+  const record = db.getOnboarding(req.params.id);
+  if (!record) return res.status(404).json({ error: "Not found" });
+  if (record.status !== "Draft") {
+    return res.status(400).json({ error: "Cannot set client access on submitted onboarding" });
+  }
+  const { client_email, client_password } = req.body || {};
+  if (!client_email || typeof client_email !== "string" || !client_email.trim()) {
+    return res.status(400).json({ error: "client_email required" });
+  }
+  if (!client_password || typeof client_password !== "string" || !client_password.trim()) {
+    return res.status(400).json({ error: "client_password required" });
+  }
+  const emailTrimmed = client_email.trim();
+  const hash = hashClientPassword(client_password.trim());
+  db.setClientAccess(req.params.id, { clientEmail: emailTrimmed, hashedPassword: hash });
+  res.json({ ok: true });
+});
+
+app.get("/api/onboarding/:id/agreement", requireDraftAccess, (req, res) => {
+  const record = db.getOnboarding(req.params.id);
+  if (!record) return res.status(404).json({ error: "Not found" });
+  res.json({
+    agreement_signed_by_operator_at: record.agreement_signed_by_operator_at ?? null,
+    agreement_signed_by_client_at: record.agreement_signed_by_client_at ?? null,
+    agreement_operator_name: record.agreement_operator_name ?? null,
+    agreement_operator_title: record.agreement_operator_title ?? null,
+    agreement_client_name: record.agreement_client_name ?? null,
+    agreement_client_title: record.agreement_client_title ?? null,
+    agreement_client_address: record.agreement_client_address ?? null,
+    agreement_pricing_option: record.agreement_pricing_option ?? null,
+    payload: record.payload_json,
+  });
+});
+
+app.post("/api/onboarding/:id/agreement/sign-operator", requireOperator, (req, res) => {
+  const record = db.getOnboarding(req.params.id);
+  if (!record) return res.status(404).json({ error: "Not found" });
+  if (record.status !== "Draft") {
+    return res.status(400).json({ error: "Cannot sign agreement on submitted onboarding" });
+  }
+  const { name, title, pricing_option } = req.body || {};
+  const result = db.signAgreementOperator(req.params.id, {
+    name: name?.trim() || null,
+    title: title?.trim() || null,
+    pricingOption: pricing_option === "100_per_appointment" ? "100_per_appointment" : "497_month",
+  });
+  if (!result) return res.status(400).json({ error: "Update failed" });
+  res.json({ ok: true, signed_at: result.signedAt });
+});
+
+app.post("/api/onboarding/:id/agreement/sign-client", requireDraftAccess, (req, res) => {
+  const data = getSessionData(getSessionToken(req));
+  if (!data || data.type !== "client" || data.onboardingId !== req.params.id) {
+    return res.status(403).json({ error: "Client access required" });
+  }
+  const record = db.getOnboarding(req.params.id);
+  if (!record) return res.status(404).json({ error: "Not found" });
+  if (record.status !== "Draft") {
+    return res.status(400).json({ error: "Cannot sign agreement on submitted onboarding" });
+  }
+  const { name, title, client_address } = req.body || {};
+  const result = db.signAgreementClient(req.params.id, {
+    name: name?.trim() || null,
+    title: title?.trim() || null,
+    clientAddress: client_address?.trim() || null,
+  });
+  if (!result) return res.status(400).json({ error: "Update failed" });
+  res.json({ ok: true, signed_at: result.signedAt });
 });
 
 function validateSubmitPayload(payload) {
@@ -346,6 +435,11 @@ app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
   if (record.status !== "Draft") {
     return res.status(400).json({ error: "Already submitted" });
   }
+  if (!record.agreement_signed_by_operator_at || !record.agreement_signed_by_client_at) {
+    return res.status(400).json({
+      error: "Both parties must sign the agreement before submitting",
+    });
+  }
   const existing = record.payload_json || {};
   const merged = { ...existing, ...(req.body || {}) };
   const validation = validateSubmitPayload(merged);
@@ -367,6 +461,7 @@ app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
     try {
       const webhookPayload = {
         ...merged,
+        client_email: record.client_email ?? null,
         meta: {
           onboarding_id: req.params.id,
           submitted_at: now,
@@ -380,7 +475,33 @@ app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
         body: JSON.stringify(webhookPayload),
       });
     } catch (err) {
-      console.error("[Clara server] GHL webhook error:", err);
+      console.error("[Clara server] GHL onboarding webhook error:", err);
+    }
+  }
+
+  const agreementWebhookUrl = process.env.GHL_AGREEMENT_WEBHOOK_URL;
+  if (agreementWebhookUrl) {
+    try {
+      const agreementPayload = {
+        onboarding_id: req.params.id,
+        client_email: record.client_email ?? null,
+        agreement_signed_by_operator_at: record.agreement_signed_by_operator_at,
+        agreement_signed_by_client_at: record.agreement_signed_by_client_at,
+        agreement_operator_name: record.agreement_operator_name,
+        agreement_operator_title: record.agreement_operator_title,
+        agreement_client_name: record.agreement_client_name,
+        agreement_client_title: record.agreement_client_title,
+        agreement_client_address: record.agreement_client_address,
+        agreement_pricing_option: record.agreement_pricing_option,
+        payload: merged,
+      };
+      await fetch(agreementWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agreementPayload),
+      });
+    } catch (err) {
+      console.error("[Clara server] GHL agreement webhook error:", err);
     }
   }
 
