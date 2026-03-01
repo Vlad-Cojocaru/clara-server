@@ -7,6 +7,7 @@ Minimal backend for Clara LP: creates Retell web calls via `/api/create-web-call
 1. Clone this repo (or copy these files into [Vlad-Cojocaru/clara-server](https://github.com/Vlad-Cojocaru/clara-server)).
 2. `npm install`
 3. Set env:
+   - **DATABASE_URL** (required, PostgreSQL connection string)
    - **RETELL_API_KEY** (required)
    - **RETELL_AGENT_ID** (optional, default `+14313404488`)
    - **ONBOARDING_PASSWORD** (required for operator login)
@@ -17,8 +18,7 @@ Minimal backend for Clara LP: creates Retell web calls via `/api/create-web-call
 
 ## Database
 
-- **Local / no DATABASE_URL:** SQLite is used. Data is stored in `./data/clara.sqlite` (or **SQLITE_PATH**). The `data/` directory is gitignored.
-- **Production (Railway):** Set **DATABASE_URL** to a PostgreSQL connection string. The server will use PostgreSQL so data persists across redeploys. Tables are created automatically on startup.
+Data is stored in **PostgreSQL** only (external to the server). **DATABASE_URL** (PostgreSQL connection string) is required. Tables are created automatically on startup. On Railway, add a Postgres database and set **DATABASE_URL** so data persists across redeploys.
 
 ## Run
 

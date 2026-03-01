@@ -1,47 +1,14 @@
+import pg from "pg";
 import { randomUUID } from "crypto";
 
-const usePg = Boolean(process.env.DATABASE_URL);
-let pool;
-let db; // SQLite instance when !usePg
-
-if (usePg) {
-  const pg = await import("pg");
-  pool = new pg.default.Pool({ connectionString: process.env.DATABASE_URL });
-} else {
-  const Database = (await import("better-sqlite3")).default;
-  const { mkdirSync, existsSync } = await import("fs");
-  const { dirname } = await import("path");
-  const dbPath = process.env.SQLITE_PATH || "./data/clara.sqlite";
-  const dir = dirname(dbPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  db = new Database(dbPath);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS onboardings (
-      onboarding_id TEXT PRIMARY KEY,
-      status TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft', 'Submitted')),
-      payload_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      submitted_at TEXT,
-      info_complete_at TEXT,
-      launch_clock_start_at TEXT
-    )
-  `);
-  for (const col of ["client_password_hash", "client_email", "client_password_plaintext"]) {
-    try { db.exec(`ALTER TABLE onboardings ADD COLUMN ${col} TEXT`); } catch (e) { if (!/duplicate column name/i.test(e.message)) throw e; }
-  }
-  const agreementColumns = [
-    "agreement_signed_by_operator_at", "agreement_signed_by_client_at",
-    "agreement_operator_name", "agreement_operator_title",
-    "agreement_client_name", "agreement_client_title",
-    "agreement_client_address", "agreement_pricing_option",
-  ];
-  for (const col of agreementColumns) {
-    try { db.exec(`ALTER TABLE onboardings ADD COLUMN ${col} TEXT`); } catch (e) { if (!/duplicate column name/i.test(e.message)) throw e; }
-  }
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL is required. Add a PostgreSQL database (e.g. Railway Postgres) and set DATABASE_URL.");
 }
 
-async function runMigrationsPg() {
+const pool = new pg.Pool({ connectionString });
+
+async function runMigrations() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS onboardings (
       onboarding_id TEXT PRIMARY KEY,
@@ -70,9 +37,7 @@ async function runMigrationsPg() {
   }
 }
 
-if (usePg) {
-  await runMigrationsPg();
-}
+await runMigrations();
 
 function deriveLabel(payloadJson) {
   if (!payloadJson) return null;
@@ -120,20 +85,9 @@ function rowToOnboarding(row) {
 }
 
 export async function listOnboardings() {
-  if (usePg) {
-    const { rows } = await pool.query(
-      "SELECT onboarding_id AS id, status, created_at, updated_at, payload_json FROM onboardings ORDER BY updated_at DESC"
-    );
-    return rows.map((r) => {
-      const { payload_json, ...rest } = r;
-      return { ...rest, label: deriveLabel(payload_json) || null };
-    });
-  }
-  const stmt = db.prepare(`
-    SELECT onboarding_id AS id, status, created_at, updated_at, payload_json
-    FROM onboardings ORDER BY updated_at DESC
-  `);
-  const rows = stmt.all();
+  const { rows } = await pool.query(
+    "SELECT onboarding_id AS id, status, created_at, updated_at, payload_json FROM onboardings ORDER BY updated_at DESC"
+  );
   return rows.map((r) => {
     const { payload_json, ...rest } = r;
     return { ...rest, label: deriveLabel(payload_json) || null };
@@ -141,161 +95,93 @@ export async function listOnboardings() {
 }
 
 export async function getOnboarding(id) {
-  if (usePg) {
-    const { rows } = await pool.query("SELECT * FROM onboardings WHERE onboarding_id = $1", [id]);
-    return rowToOnboarding(rows[0] ?? null);
-  }
-  const row = db.prepare("SELECT * FROM onboardings WHERE onboarding_id = ?").get(id);
-  return rowToOnboarding(row);
+  const { rows } = await pool.query("SELECT * FROM onboardings WHERE onboarding_id = $1", [id]);
+  return rowToOnboarding(rows[0] ?? null);
 }
 
 export async function setClientPassword(onboardingId, hashedPassword) {
-  if (usePg) {
-    const r = await pool.query(
-      "UPDATE onboardings SET client_password_hash = $1, updated_at = NOW() WHERE onboarding_id = $2 AND status = 'Draft'",
-      [hashedPassword ?? null, onboardingId]
-    );
-    return r.rowCount > 0;
-  }
-  const result = db.prepare(`
-    UPDATE onboardings SET client_password_hash = ?, updated_at = datetime('now')
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(hashedPassword ?? null, onboardingId);
-  return result.changes > 0;
+  const r = await pool.query(
+    "UPDATE onboardings SET client_password_hash = $1, updated_at = NOW() WHERE onboarding_id = $2 AND status = 'Draft'",
+    [hashedPassword ?? null, onboardingId]
+  );
+  return r.rowCount > 0;
 }
 
 export async function setClientAccess(onboardingId, { clientEmail, hashedPassword, plainPassword }) {
-  if (usePg) {
-    const r = await pool.query(
-      `UPDATE onboardings
-       SET client_email = $1, client_password_hash = $2, client_password_plaintext = $3, updated_at = NOW()
-       WHERE onboarding_id = $4 AND status = 'Draft'`,
-      [clientEmail ?? null, hashedPassword ?? null, plainPassword ?? null, onboardingId]
-    );
-    return r.rowCount > 0;
-  }
-  const result = db.prepare(`
-    UPDATE onboardings
-    SET client_email = ?, client_password_hash = ?, client_password_plaintext = ?, updated_at = datetime('now')
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(clientEmail ?? null, hashedPassword ?? null, plainPassword ?? null, onboardingId);
-  return result.changes > 0;
+  const r = await pool.query(
+    `UPDATE onboardings
+     SET client_email = $1, client_password_hash = $2, client_password_plaintext = $3, updated_at = NOW()
+     WHERE onboarding_id = $4 AND status = 'Draft'`,
+    [clientEmail ?? null, hashedPassword ?? null, plainPassword ?? null, onboardingId]
+  );
+  return r.rowCount > 0;
 }
 
 export async function getClientPasswordHash(onboardingId) {
-  if (usePg) {
-    const { rows } = await pool.query(
-      "SELECT client_password_hash FROM onboardings WHERE onboarding_id = $1 AND status = 'Draft'",
-      [onboardingId]
-    );
-    return rows[0]?.client_password_hash ?? null;
-  }
-  const row = db.prepare(
-    "SELECT client_password_hash FROM onboardings WHERE onboarding_id = ? AND status = 'Draft'"
-  ).get(onboardingId);
-  return row?.client_password_hash ?? null;
+  const { rows } = await pool.query(
+    "SELECT client_password_hash FROM onboardings WHERE onboarding_id = $1 AND status = 'Draft'",
+    [onboardingId]
+  );
+  return rows[0]?.client_password_hash ?? null;
 }
 
 export async function getClientEmail(onboardingId) {
-  if (usePg) {
-    const { rows } = await pool.query("SELECT client_email FROM onboardings WHERE onboarding_id = $1", [onboardingId]);
-    return rows[0]?.client_email ?? null;
-  }
-  const row = db.prepare("SELECT client_email FROM onboardings WHERE onboarding_id = ?").get(onboardingId);
-  return row?.client_email ?? null;
+  const { rows } = await pool.query("SELECT client_email FROM onboardings WHERE onboarding_id = $1", [onboardingId]);
+  return rows[0]?.client_email ?? null;
 }
 
 export async function signAgreementOperator(onboardingId, { name, title, pricingOption }) {
   const now = new Date().toISOString();
-  if (usePg) {
-    const r = await pool.query(
-      `UPDATE onboardings
-       SET agreement_signed_by_operator_at = $1, agreement_operator_name = $2, agreement_operator_title = $3,
-           agreement_pricing_option = $4, updated_at = NOW()
-       WHERE onboarding_id = $5 AND status = 'Draft'`,
-      [now, name ?? null, title ?? null, pricingOption ?? null, onboardingId]
-    );
-    return r.rowCount > 0 ? { signedAt: now } : null;
-  }
-  const result = db.prepare(`
-    UPDATE onboardings
-    SET agreement_signed_by_operator_at = ?, agreement_operator_name = ?, agreement_operator_title = ?,
-        agreement_pricing_option = ?, updated_at = datetime('now')
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(now, name ?? null, title ?? null, pricingOption ?? null, onboardingId);
-  return result.changes > 0 ? { signedAt: now } : null;
+  const r = await pool.query(
+    `UPDATE onboardings
+     SET agreement_signed_by_operator_at = $1, agreement_operator_name = $2, agreement_operator_title = $3,
+         agreement_pricing_option = $4, updated_at = NOW()
+     WHERE onboarding_id = $5 AND status = 'Draft'`,
+    [now, name ?? null, title ?? null, pricingOption ?? null, onboardingId]
+  );
+  return r.rowCount > 0 ? { signedAt: now } : null;
 }
 
 export async function signAgreementClient(onboardingId, { name, title, clientAddress }) {
   const now = new Date().toISOString();
-  if (usePg) {
-    const r = await pool.query(
-      `UPDATE onboardings
-       SET agreement_signed_by_client_at = $1, agreement_client_name = $2, agreement_client_title = $3,
-           agreement_client_address = $4, updated_at = NOW()
-       WHERE onboarding_id = $5 AND status = 'Draft'`,
-      [now, name ?? null, title ?? null, clientAddress ?? null, onboardingId]
-    );
-    return r.rowCount > 0 ? { signedAt: now } : null;
-  }
-  const result = db.prepare(`
-    UPDATE onboardings
-    SET agreement_signed_by_client_at = ?, agreement_client_name = ?, agreement_client_title = ?,
-        agreement_client_address = ?, updated_at = datetime('now')
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(now, name ?? null, title ?? null, clientAddress ?? null, onboardingId);
-  return result.changes > 0 ? { signedAt: now } : null;
+  const r = await pool.query(
+    `UPDATE onboardings
+     SET agreement_signed_by_client_at = $1, agreement_client_name = $2, agreement_client_title = $3,
+         agreement_client_address = $4, updated_at = NOW()
+     WHERE onboarding_id = $5 AND status = 'Draft'`,
+    [now, name ?? null, title ?? null, clientAddress ?? null, onboardingId]
+  );
+  return r.rowCount > 0 ? { signedAt: now } : null;
 }
 
 export async function createOnboarding() {
   const id = randomUUID();
-  if (usePg) {
-    await pool.query(
-      "INSERT INTO onboardings (onboarding_id, status, payload_json) VALUES ($1, 'Draft', '{}')",
-      [id]
-    );
-    return id;
-  }
-  db.prepare("INSERT INTO onboardings (onboarding_id, status, payload_json) VALUES (?, 'Draft', '{}')").run(id);
+  await pool.query(
+    "INSERT INTO onboardings (onboarding_id, status, payload_json) VALUES ($1, 'Draft', '{}')",
+    [id]
+  );
   return id;
 }
 
 export async function updateOnboarding(id, payload) {
   const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload ?? {});
-  if (usePg) {
-    const r = await pool.query(
-      "UPDATE onboardings SET payload_json = $1, updated_at = NOW() WHERE onboarding_id = $2 AND status = 'Draft'",
-      [payloadStr, id]
-    );
-    if (r.rowCount === 0) return null;
-    return getOnboarding(id);
-  }
-  const result = db.prepare(`
-    UPDATE onboardings SET payload_json = ?, updated_at = datetime('now')
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(payloadStr, id);
-  if (result.changes === 0) return null;
+  const r = await pool.query(
+    "UPDATE onboardings SET payload_json = $1, updated_at = NOW() WHERE onboarding_id = $2 AND status = 'Draft'",
+    [payloadStr, id]
+  );
+  if (r.rowCount === 0) return null;
   return getOnboarding(id);
 }
 
 export async function submitOnboarding(id, payload, { infoCompleteAt, launchClockStartAt }) {
   const payloadStr = typeof payload === "string" ? payload : JSON.stringify(payload ?? {});
-  if (usePg) {
-    await pool.query(
-      `UPDATE onboardings
-       SET status = 'Submitted', payload_json = $1, updated_at = NOW(), submitted_at = NOW(),
-           info_complete_at = $2, launch_clock_start_at = $3
-       WHERE onboarding_id = $4 AND status = 'Draft'`,
-      [payloadStr, infoCompleteAt ?? null, launchClockStartAt ?? null, id]
-    );
-    return getOnboarding(id);
-  }
-  db.prepare(`
-    UPDATE onboardings
-    SET status = 'Submitted', payload_json = ?, updated_at = datetime('now'), submitted_at = datetime('now'),
-        info_complete_at = ?, launch_clock_start_at = ?
-    WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(payloadStr, infoCompleteAt ?? null, launchClockStartAt ?? null, id);
+  await pool.query(
+    `UPDATE onboardings
+     SET status = 'Submitted', payload_json = $1, updated_at = NOW(), submitted_at = NOW(),
+         info_complete_at = $2, launch_clock_start_at = $3
+     WHERE onboarding_id = $4 AND status = 'Draft'`,
+    [payloadStr, infoCompleteAt ?? null, launchClockStartAt ?? null, id]
+  );
   return getOnboarding(id);
 }
 
