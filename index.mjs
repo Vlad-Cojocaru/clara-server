@@ -233,7 +233,8 @@ app.post("/api/onboarding/create", requireOperator, (req, res) => {
 app.get("/api/onboarding/:id", requireDraftAccess, (req, res) => {
   const record = db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
-  res.json({
+  const session = getSessionData(getSessionToken(req));
+  const payload = {
     onboarding_id: record.onboarding_id,
     status: record.status,
     payload: record.payload_json,
@@ -244,7 +245,11 @@ app.get("/api/onboarding/:id", requireDraftAccess, (req, res) => {
     launch_clock_start_at: record.launch_clock_start_at,
     has_client_password: record.has_client_password ?? false,
     client_email: record.client_email ?? null,
-  });
+  };
+  if (session?.type === "operator" && record.client_password_plaintext != null) {
+    payload.client_password_plaintext = record.client_password_plaintext;
+  }
+  res.json(payload);
 });
 
 app.patch("/api/onboarding/:id", requireDraftAccess, (req, res) => {
@@ -294,8 +299,13 @@ app.patch("/api/onboarding/:id/client-access", requireOperator, (req, res) => {
     return res.status(400).json({ error: "client_password required" });
   }
   const emailTrimmed = client_email.trim();
-  const hash = hashClientPassword(client_password.trim());
-  db.setClientAccess(req.params.id, { clientEmail: emailTrimmed, hashedPassword: hash });
+  const pwdTrimmed = client_password.trim();
+  const hash = hashClientPassword(pwdTrimmed);
+  db.setClientAccess(req.params.id, {
+    clientEmail: emailTrimmed,
+    hashedPassword: hash,
+    plainPassword: pwdTrimmed,
+  });
   res.json({ ok: true });
 });
 

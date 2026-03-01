@@ -31,6 +31,11 @@ try {
 } catch (e) {
   if (!/duplicate column name/i.test(e.message)) throw e;
 }
+try {
+  db.exec("ALTER TABLE onboardings ADD COLUMN client_password_plaintext TEXT");
+} catch (e) {
+  if (!/duplicate column name/i.test(e.message)) throw e;
+}
 const agreementColumns = [
   "agreement_signed_by_operator_at", "agreement_signed_by_client_at",
   "agreement_operator_name", "agreement_operator_title",
@@ -78,7 +83,7 @@ export function getOnboarding(id) {
     "SELECT * FROM onboardings WHERE onboarding_id = ?"
   ).get(id);
   if (!row) return null;
-  const { client_password_hash, client_email, ...rest } = row;
+  const { client_password_hash, client_email, client_password_plaintext, ...rest } = row;
   const agreement = {
     agreement_signed_by_operator_at: row.agreement_signed_by_operator_at ?? null,
     agreement_signed_by_client_at: row.agreement_signed_by_client_at ?? null,
@@ -94,6 +99,7 @@ export function getOnboarding(id) {
     payload_json: row.payload_json ? JSON.parse(row.payload_json) : {},
     has_client_password: Boolean(client_password_hash),
     client_email: client_email ?? null,
+    client_password_plaintext: client_password_plaintext ?? null,
     ...agreement,
   };
 }
@@ -107,12 +113,12 @@ export function setClientPassword(onboardingId, hashedPassword) {
   return result.changes > 0;
 }
 
-export function setClientAccess(onboardingId, { clientEmail, hashedPassword }) {
+export function setClientAccess(onboardingId, { clientEmail, hashedPassword, plainPassword }) {
   const result = db.prepare(`
     UPDATE onboardings
-    SET client_email = ?, client_password_hash = ?, updated_at = datetime('now')
+    SET client_email = ?, client_password_hash = ?, client_password_plaintext = ?, updated_at = datetime('now')
     WHERE onboarding_id = ? AND status = 'Draft'
-  `).run(clientEmail ?? null, hashedPassword ?? null, onboardingId);
+  `).run(clientEmail ?? null, hashedPassword ?? null, plainPassword ?? null, onboardingId);
   return result.changes > 0;
 }
 
