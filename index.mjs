@@ -159,7 +159,8 @@ app.post("/api/onboarding/login", (req, res) => {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     maxAge: SESSION_TTL_MS,
-    sameSite: "lax",
+    sameSite: "none",
+    secure: true,
     path: "/",
   });
   res.json({ ok: true });
@@ -187,7 +188,8 @@ app.post("/api/onboarding/client-login", (req, res) => {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     maxAge: SESSION_TTL_MS,
-    sameSite: "lax",
+    sameSite: "none",
+    secure: true,
     path: "/",
   });
   res.json({ ok: true });
@@ -196,7 +198,7 @@ app.post("/api/onboarding/client-login", (req, res) => {
 app.post("/api/onboarding/logout", (req, res) => {
   const token = getSessionToken(req);
   if (token) sessions.delete(token);
-  res.clearCookie(SESSION_COOKIE, { path: "/" });
+  res.clearCookie(SESSION_COOKIE, { path: "/", sameSite: "none", secure: true });
   res.json({ ok: true });
 });
 
