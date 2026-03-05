@@ -185,4 +185,9 @@ export async function submitOnboarding(id, payload, { infoCompleteAt, launchCloc
   return getOnboarding(id);
 }
 
-export default { listOnboardings, getOnboarding, setClientPassword, setClientAccess, getClientPasswordHash, getClientEmail, signAgreementOperator, signAgreementClient, createOnboarding, updateOnboarding, submitOnboarding };
+export async function deleteOnboarding(id) {
+  const r = await pool.query("DELETE FROM onboardings WHERE onboarding_id = $1", [id]);
+  return r.rowCount > 0;
+}
+
+export default { listOnboardings, getOnboarding, setClientPassword, setClientAccess, getClientPasswordHash, getClientEmail, signAgreementOperator, signAgreementClient, createOnboarding, updateOnboarding, submitOnboarding, deleteOnboarding };

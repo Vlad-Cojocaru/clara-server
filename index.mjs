@@ -230,6 +230,12 @@ app.post("/api/onboarding/create", requireOperator, async (req, res) => {
   res.status(201).json({ onboarding_id });
 });
 
+app.delete("/api/onboarding/:id", requireOperator, async (req, res) => {
+  const deleted = await db.deleteOnboarding(req.params.id);
+  if (!deleted) return res.status(404).json({ error: "Not found" });
+  res.status(204).end();
+});
+
 app.get("/api/onboarding/:id", requireDraftAccess, async (req, res) => {
   const record = await db.getOnboarding(req.params.id);
   if (!record) return res.status(404).json({ error: "Not found" });
