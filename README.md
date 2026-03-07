@@ -13,8 +13,6 @@ Minimal backend for Clara LP: creates Retell web calls via `/api/create-web-call
    - **ONBOARDING_PASSWORD** (required for operator login)
    - **SUPERUSER_EMAIL** (optional, default `vlad@curate222.com`)
    - **ONBOARDING_SECRET** (optional, for client password hashing)
-   - **GHL_ONBOARDING_WEBHOOK_URL** (optional, POST onboarding payload on submit)
-   - **GHL_AGREEMENT_WEBHOOK_URL** (optional, POST agreement data on submit)
 
 ## Database
 
