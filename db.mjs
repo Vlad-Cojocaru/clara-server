@@ -35,9 +35,127 @@ async function runMigrations() {
       if (e.code !== "42701") throw e; // duplicate_column
     }
   }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS landing_video_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id TEXT,
+      event_type TEXT NOT NULL CHECK (event_type IN ('play', 'pause', 'unmute', 'mute', 'timeupdate', 'ended')),
+      video_time_seconds NUMERIC,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_landing_video_events_created_at ON landing_video_events (created_at)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_landing_video_events_session_id ON landing_video_events (session_id)
+  `);
 }
 
 await runMigrations();
+
+const ALLOWED_VIDEO_EVENT_TYPES = ["play", "pause", "unmute", "mute", "timeupdate", "ended"];
+
+export async function insertLandingVideoEvent({ sessionId, eventType, videoTimeSeconds }) {
+  if (!ALLOWED_VIDEO_EVENT_TYPES.includes(eventType)) return;
+  const time = videoTimeSeconds != null ? Math.min(600, Math.max(0, Number(videoTimeSeconds))) : null;
+  await pool.query(
+    `INSERT INTO landing_video_events (session_id, event_type, video_time_seconds) VALUES ($1, $2, $3)`,
+    [sessionId ?? null, eventType, time]
+  );
+}
+
+export async function getLandingVideoAnalytics(fromDate, toDate) {
+  const from = fromDate ? new Date(fromDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const to = toDate ? new Date(toDate) : new Date();
+  const fromStr = from.toISOString();
+  const toStr = to.toISOString();
+
+  const [totalsResult, dailyResult, pauseHistogramResult, watchTimeResult, unmuteSessionsResult] = await Promise.all([
+    pool.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE event_type = 'play') AS total_plays,
+        COUNT(*) FILTER (WHERE event_type = 'pause') AS total_pauses,
+        COUNT(*) FILTER (WHERE event_type = 'unmute') AS total_unmutes,
+        COUNT(*) FILTER (WHERE event_type = 'mute') AS total_mutes
+       FROM landing_video_events WHERE created_at >= $1 AND created_at <= $2`,
+      [fromStr, toStr]
+    ),
+    pool.query(
+      `SELECT date_trunc('day', created_at AT TIME ZONE 'UTC')::date AS day,
+        COUNT(*) FILTER (WHERE event_type = 'play') AS plays,
+        COUNT(*) FILTER (WHERE event_type = 'pause') AS pauses,
+        COUNT(*) FILTER (WHERE event_type = 'unmute') AS unmutes
+       FROM landing_video_events WHERE created_at >= $1 AND created_at <= $2
+       GROUP BY date_trunc('day', created_at AT TIME ZONE 'UTC') ORDER BY day`,
+      [fromStr, toStr]
+    ),
+    pool.query(
+      `SELECT
+        CASE
+          WHEN video_time_seconds IS NULL OR video_time_seconds < 15 THEN '0-15s'
+          WHEN video_time_seconds < 30 THEN '15-30s'
+          WHEN video_time_seconds < 60 THEN '30-60s'
+          WHEN video_time_seconds < 120 THEN '1-2m'
+          ELSE '2m+'
+        END AS bucket,
+        COUNT(*) AS count
+       FROM landing_video_events WHERE event_type = 'pause' AND created_at >= $1 AND created_at <= $2
+       GROUP BY 1 ORDER BY MIN(video_time_seconds) NULLS FIRST`,
+      [fromStr, toStr]
+    ),
+    pool.query(
+      `WITH session_max AS (
+         SELECT session_id, MAX(video_time_seconds) AS max_seconds
+         FROM landing_video_events
+         WHERE created_at >= $1 AND created_at <= $2 AND session_id IS NOT NULL
+           AND event_type IN ('timeupdate', 'pause', 'ended') AND video_time_seconds IS NOT NULL
+         GROUP BY session_id
+       )
+       SELECT COALESCE(SUM(max_seconds), 0) AS total_seconds, COUNT(*) AS session_count
+       FROM session_max`,
+      [fromStr, toStr]
+    ),
+    pool.query(
+      `SELECT COUNT(DISTINCT session_id) AS sessions_with_unmute
+       FROM landing_video_events WHERE event_type = 'unmute' AND created_at >= $1 AND created_at <= $2 AND session_id IS NOT NULL`,
+      [fromStr, toStr]
+    ),
+  ]);
+
+  const totals = totalsResult.rows[0];
+  const totalPlays = parseInt(totals?.total_plays ?? "0", 10);
+  const totalSessions = watchTimeResult.rows[0]?.session_count ?? 0;
+  const totalWatchSeconds = parseFloat(watchTimeResult.rows[0]?.total_seconds ?? "0") || 0;
+  const sessionsWithUnmute = parseInt(unmuteSessionsResult.rows[0]?.sessions_with_unmute ?? "0", 10);
+  const unmuteRate =
+    totalSessions > 0 ? Math.round((sessionsWithUnmute / totalSessions) * 100) : 0;
+
+  return {
+    from: fromStr,
+    to: toStr,
+    totalPlays: totalPlays,
+    totalPauses: parseInt(totals?.total_pauses ?? "0", 10),
+    totalUnmutes: parseInt(totals?.total_unmutes ?? "0", 10),
+    totalMutes: parseInt(totals?.total_mutes ?? "0", 10),
+    dailyEvents: (dailyResult.rows || []).map((r) => ({
+      date: r.day,
+      plays: parseInt(r.plays ?? "0", 10),
+      pauses: parseInt(r.pauses ?? "0", 10),
+      unmutes: parseInt(r.unmutes ?? "0", 10),
+    })),
+    avgWatchTimeSeconds: totalSessions > 0 ? Math.round(totalWatchSeconds / totalSessions) : 0,
+    totalWatchTimeSeconds: Math.round(totalWatchSeconds),
+    sessionCount: totalSessions,
+    pauseAtHistogram: (pauseHistogramResult.rows || []).map((r) => ({
+      bucket: r.bucket,
+      count: parseInt(r.count ?? "0", 10),
+    })),
+    unmuteRate,
+    sessionsWithUnmute,
+  };
+}
 
 function deriveLabel(payloadJson) {
   if (!payloadJson) return null;

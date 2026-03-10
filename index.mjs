@@ -483,6 +483,63 @@ app.post("/api/onboarding/:id/submit", requireOperator, async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Landing page video analytics (public ingest, operator-only read) ---
+
+const ALLOWED_VIDEO_EVENTS = ["play", "pause", "unmute", "mute", "timeupdate", "ended"];
+const VIDEO_EVENT_RATE_LIMIT = 60; // max events per sessionId per minute
+const videoEventCounts = new Map(); // sessionId -> { count, resetAt }
+
+function checkVideoEventRateLimit(sessionId) {
+  if (!sessionId) return true;
+  const now = Date.now();
+  const key = sessionId;
+  let entry = videoEventCounts.get(key);
+  if (!entry) {
+    videoEventCounts.set(key, { count: 1, resetAt: now + 60 * 1000 });
+    return true;
+  }
+  if (now > entry.resetAt) {
+    entry.count = 1;
+    entry.resetAt = now + 60 * 1000;
+    return true;
+  }
+  if (entry.count >= VIDEO_EVENT_RATE_LIMIT) return false;
+  entry.count += 1;
+  return true;
+}
+
+app.post("/api/landing/video-event", async (req, res) => {
+  const { sessionId, event, videoTimeSeconds } = req.body || {};
+  if (!event || !ALLOWED_VIDEO_EVENTS.includes(event)) {
+    return res.status(400).json({ error: "Invalid or missing event" });
+  }
+  if (!checkVideoEventRateLimit(sessionId ?? req.ip)) {
+    return res.status(429).json({ error: "Too many events" });
+  }
+  try {
+    await db.insertLandingVideoEvent({
+      sessionId: typeof sessionId === "string" ? sessionId.slice(0, 128) : null,
+      eventType: event,
+      videoTimeSeconds: videoTimeSeconds != null ? Number(videoTimeSeconds) : undefined,
+    });
+    res.status(204).end();
+  } catch (err) {
+    console.error("[Clara server] landing video event error:", err);
+    res.status(500).json({ error: "Failed to record event" });
+  }
+});
+
+app.get("/api/landing/analytics", requireOperator, async (req, res) => {
+  const { from, to } = req.query || {};
+  try {
+    const data = await db.getLandingVideoAnalytics(from || undefined, to || undefined);
+    res.json(data);
+  } catch (err) {
+    console.error("[Clara server] landing analytics error:", err);
+    res.status(500).json({ error: "Failed to load analytics" });
+  }
+});
+
 // Log 404s so we know if something else is handling the request
 app.use((req, res) => {
   log("404", req);
