@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { randomBytes, scryptSync } from "crypto";
 import * as db from "./db.mjs";
+import { mergeShortlistWithRetell } from "./voiceShortlist.mjs";
 
 const app = express();
 
@@ -234,6 +235,34 @@ app.delete("/api/onboarding/:id", requireOperator, async (req, res) => {
   const deleted = await db.deleteOnboarding(req.params.id);
   if (!deleted) return res.status(404).json({ error: "Not found" });
   res.status(204).end();
+});
+
+/** Curated voice previews for onboarding (Retell list-voices + shortlist); no API key in client */
+app.get("/api/onboarding/:id/voice-options", requireDraftAccess, async (req, res) => {
+  const apiKey = process.env.RETELL_API_KEY;
+  if (!apiKey) {
+    return res.status(200).json({ voices: [], unavailable: true });
+  }
+  try {
+    const response = await fetch("https://api.retellai.com/list-voices", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      console.log("[Clara server] list-voices error:", response.status, errText);
+      return res.status(200).json({ voices: [], unavailable: true });
+    }
+    const data = await response.json();
+    const list = Array.isArray(data) ? data : data.voices || [];
+    const voices = mergeShortlistWithRetell(list);
+    return res.json({ voices });
+  } catch (err) {
+    console.error("[Clara server] voice-options:", err);
+    return res.status(200).json({ voices: [], unavailable: true });
+  }
 });
 
 app.get("/api/onboarding/:id", requireDraftAccess, async (req, res) => {
