@@ -11,11 +11,11 @@
  * (one per display name). That’s why you used to see random/extra names — it was padding the list.
  * Keep it unset (or 0) so clients only see this curated list.
  *
- * EXCLUDED_DISPLAY_NAMES: block specific names from backfill only (e.g. Adrian duplicates).
+ * EXCLUDED_BACKFILL_NAMES: block names from backfill only (e.g. Adrian / Alejandro if backfill on).
  */
 export const VOICE_SHORTLIST = [
   { voiceId: "retell-Cimo", displayName: "Cimo" },
-  { voiceId: "11labs-Alejandro", displayName: "Alejandro" },
+  { voiceId: "11labs-Josh", displayName: "Josh" },
   { voiceId: "11labs-Emily", displayName: "Emily" },
   { voiceId: "11labs-Jessica", displayName: "Jessica" },
   { voiceId: "11labs-Rachel", displayName: "Rachel" },
@@ -25,7 +25,7 @@ export const VOICE_SHORTLIST = [
 ];
 
 /** Blocked from backfill only (shortlist rows are never filtered by this) */
-const EXCLUDED_BACKFILL_NAMES = new Set(["adrian"]);
+const EXCLUDED_BACKFILL_NAMES = new Set(["adrian", "alejandro"]);
 
 function parseMinTotal() {
   const raw = process.env.VOICE_OPTIONS_MIN_TOTAL;
