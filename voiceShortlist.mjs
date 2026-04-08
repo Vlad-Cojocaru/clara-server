@@ -7,7 +7,7 @@
  *   (falls back to VOICE_PREVIEW_CLARA_URL if set for backwards compatibility)
  *
  * Backfill fills up to VOICE_OPTIONS_MIN_TOTAL (default 8) from list-voices, one card per unique
- * display name; "Adrian" is excluded from backfill. Shortlist has no Adrian row.
+ * display name. Names in EXCLUDED_DISPLAY_NAMES are never shown (shortlist or backfill).
  */
 export const VOICE_SHORTLIST = [
   { voiceId: "retell-Cimo", displayName: "Cimo" },
@@ -19,8 +19,8 @@ export const VOICE_SHORTLIST = [
   { voiceId: "11labs-Grace", displayName: "Grace" },
 ];
 
-/** Voice names (lowercase) never added from API backfill */
-const EXCLUDED_BACKFILL_NAMES = new Set(["adrian"]);
+/** Display names (lowercase) never shown */
+const EXCLUDED_DISPLAY_NAMES = new Set(["adrian", "alejandro"]);
 
 function parseMinTotal() {
   const n = parseInt(process.env.VOICE_OPTIONS_MIN_TOTAL || "8", 10);
@@ -60,7 +60,8 @@ export function mergeShortlistWithRetell(retellVoices) {
 
   function addVoice(voiceId, displayName, previewAudioUrl) {
     const nameKey = normDisplay(displayName);
-    if (!nameKey || usedDisplayNames.has(nameKey)) return false;
+    if (!nameKey || EXCLUDED_DISPLAY_NAMES.has(nameKey) || usedDisplayNames.has(nameKey))
+      return false;
     usedDisplayNames.add(nameKey);
     out.push({
       voiceId,
@@ -83,7 +84,7 @@ export function mergeShortlistWithRetell(retellVoices) {
   const candidates = list
     .filter((v) => v.voice_id && !usedIds.has(v.voice_id))
     .filter((v) => (v.preview_audio_url || "").trim())
-    .filter((v) => !EXCLUDED_BACKFILL_NAMES.has(normDisplay(v.voice_name)))
+    .filter((v) => !EXCLUDED_DISPLAY_NAMES.has(normDisplay(v.voice_name)))
     .sort((a, b) =>
       String(a.voice_name || a.voice_id).localeCompare(
         String(b.voice_name || b.voice_id),
@@ -95,7 +96,7 @@ export function mergeShortlistWithRetell(retellVoices) {
   for (const v of candidates) {
     if (out.length >= target) break;
     const label = v.voice_name || v.voice_id;
-    if (EXCLUDED_BACKFILL_NAMES.has(normDisplay(label))) continue;
+    if (EXCLUDED_DISPLAY_NAMES.has(normDisplay(label))) continue;
     addVoice(v.voice_id, label, (v.preview_audio_url || "").trim());
   }
 
