@@ -4,11 +4,37 @@
  * Use this to fix VOICE_SHORTLIST in voiceShortlist.mjs (no public global catalog exists).
  *
  *   cd clara-server && RETELL_API_KEY=... node scripts/list-retell-voices.mjs
- *   npm run list-retell-voices   # if RETELL_API_KEY is in your shell env
+ *   npm run list-retell-voices   # uses clara-server/.env if present, else shell env
  */
+import { existsSync, readFileSync } from "fs";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, "..", ".env");
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    if (eq < 1) continue;
+    const k = t.slice(0, eq).trim();
+    let v = t.slice(eq + 1).trim();
+    if (
+      (v.startsWith('"') && v.endsWith('"')) ||
+      (v.startsWith("'") && v.endsWith("'"))
+    ) {
+      v = v.slice(1, -1);
+    }
+    if (process.env[k] === undefined) process.env[k] = v;
+  }
+}
+
 const key = process.env.RETELL_API_KEY;
 if (!key?.trim()) {
-  console.error("Set RETELL_API_KEY in the environment.");
+  console.error(
+    "Set RETELL_API_KEY (shell env or clara-server/.env). Never commit the key."
+  );
   process.exit(1);
 }
 
