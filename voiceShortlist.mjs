@@ -16,6 +16,8 @@
 export const VOICE_SHORTLIST = [
   { voiceId: "retell-Cimo", displayName: "Cimo" },
   { voiceId: "11labs-Josh", displayName: "Josh" },
+  { voiceId: "11labs-Arnold", displayName: "Arnold" },
+  { voiceId: "11labs-Sam", displayName: "Sam" },
   { voiceId: "11labs-Emily", displayName: "Emily" },
   { voiceId: "11labs-Jessica", displayName: "Jessica" },
   { voiceId: "11labs-Rachel", displayName: "Rachel" },
