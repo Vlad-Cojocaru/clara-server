@@ -3,7 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { randomBytes, scryptSync } from "crypto";
 import * as db from "./db.mjs";
-import { mergeShortlistWithRetell } from "./voiceShortlist.mjs";
+import { mergeShortlistWithRetell, missingShortlistVoiceIds } from "./voiceShortlist.mjs";
 
 const app = express();
 
@@ -258,7 +258,10 @@ app.get("/api/onboarding/:id/voice-options", requireDraftAccess, async (req, res
     const data = await response.json();
     const list = Array.isArray(data) ? data : data.voices || [];
     const voices = mergeShortlistWithRetell(list);
-    return res.json({ voices });
+    return res.json({
+      voices,
+      shortlistMissingVoiceIds: missingShortlistVoiceIds(list),
+    });
   } catch (err) {
     console.error("[Clara server] voice-options:", err);
     return res.status(200).json({ voices: [], unavailable: true });
