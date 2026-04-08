@@ -2,15 +2,20 @@
  * Curated voice IDs for onboarding demos (Retell `voice_id` from Dashboard or GET /list-voices).
  * Order = display order. `displayName` overrides Retell's voice_name for client-facing UI.
  *
- * Cimo (retell-Cimo): Retell's default preview may mention their product. Optional server env:
- *   VOICE_PREVIEW_CIMO_URL=https://your-cdn/.../cimo-demo.mp3
- *   (falls back to VOICE_PREVIEW_CLARA_URL if set for backwards compatibility)
+ * Cimo (retell-Cimo): optional custom preview (Retell’s default clip may mention their product):
+ *   VOICE_PREVIEW_CIMO_URL=…  (or VOICE_PREVIEW_CLARA_URL)
  *
- * Backfill fills up to VOICE_OPTIONS_MIN_TOTAL (default 8) from list-voices, one card per unique
- * display name. Names in EXCLUDED_DISPLAY_NAMES are never shown (shortlist or backfill).
+ * **Backfill (off by default):** Only voices in VOICE_SHORTLIST are returned unless you set
+ *   VOICE_OPTIONS_MIN_TOTAL=N   (e.g. 10)
+ * on the server. Then we add more voices from Retell’s full list-voices until N cards exist
+ * (one per display name). That’s why you used to see random/extra names — it was padding the list.
+ * Keep it unset (or 0) so clients only see this curated list.
+ *
+ * EXCLUDED_DISPLAY_NAMES: block specific names from backfill only (e.g. Adrian duplicates).
  */
 export const VOICE_SHORTLIST = [
   { voiceId: "retell-Cimo", displayName: "Cimo" },
+  { voiceId: "11labs-Alejandro", displayName: "Alejandro" },
   { voiceId: "11labs-Emily", displayName: "Emily" },
   { voiceId: "11labs-Jessica", displayName: "Jessica" },
   { voiceId: "11labs-Rachel", displayName: "Rachel" },
@@ -19,12 +24,14 @@ export const VOICE_SHORTLIST = [
   { voiceId: "11labs-Grace", displayName: "Grace" },
 ];
 
-/** Display names (lowercase) never shown */
-const EXCLUDED_DISPLAY_NAMES = new Set(["adrian", "alejandro"]);
+/** Blocked from backfill only (shortlist rows are never filtered by this) */
+const EXCLUDED_BACKFILL_NAMES = new Set(["adrian"]);
 
 function parseMinTotal() {
-  const n = parseInt(process.env.VOICE_OPTIONS_MIN_TOTAL || "8", 10);
-  if (Number.isNaN(n) || n < 1) return 8;
+  const raw = process.env.VOICE_OPTIONS_MIN_TOTAL;
+  if (raw === undefined || String(raw).trim() === "") return 0;
+  const n = parseInt(String(raw), 10);
+  if (Number.isNaN(n) || n < 1) return 0;
   return Math.min(20, n);
 }
 
@@ -60,8 +67,7 @@ export function mergeShortlistWithRetell(retellVoices) {
 
   function addVoice(voiceId, displayName, previewAudioUrl) {
     const nameKey = normDisplay(displayName);
-    if (!nameKey || EXCLUDED_DISPLAY_NAMES.has(nameKey) || usedDisplayNames.has(nameKey))
-      return false;
+    if (!nameKey || usedDisplayNames.has(nameKey)) return false;
     usedDisplayNames.add(nameKey);
     out.push({
       voiceId,
@@ -80,11 +86,12 @@ export function mergeShortlistWithRetell(retellVoices) {
     addVoice(v.voice_id, label, previewAudioUrl);
   }
 
-  const target = Math.max(out.length, parseMinTotal());
+  const minExtra = parseMinTotal();
+  const target = minExtra > 0 ? Math.max(out.length, minExtra) : out.length;
   const candidates = list
     .filter((v) => v.voice_id && !usedIds.has(v.voice_id))
     .filter((v) => (v.preview_audio_url || "").trim())
-    .filter((v) => !EXCLUDED_DISPLAY_NAMES.has(normDisplay(v.voice_name)))
+    .filter((v) => !EXCLUDED_BACKFILL_NAMES.has(normDisplay(v.voice_name)))
     .sort((a, b) =>
       String(a.voice_name || a.voice_id).localeCompare(
         String(b.voice_name || b.voice_id),
@@ -96,7 +103,7 @@ export function mergeShortlistWithRetell(retellVoices) {
   for (const v of candidates) {
     if (out.length >= target) break;
     const label = v.voice_name || v.voice_id;
-    if (EXCLUDED_DISPLAY_NAMES.has(normDisplay(label))) continue;
+    if (EXCLUDED_BACKFILL_NAMES.has(normDisplay(label))) continue;
     addVoice(v.voice_id, label, (v.preview_audio_url || "").trim());
   }
 
