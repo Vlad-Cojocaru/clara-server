@@ -1,8 +1,6 @@
 /**
  * Curated voice IDs for onboarding demos (Retell `voice_id` from Dashboard or GET /list-voices).
- * There is no public global catalog: IDs must match what *your* Retell API key returns.
- * Run: `npm run list-retell-voices` (RETELL_API_KEY in env) to dump real `voice_id`s.
- * Order = display order. `displayName` overrides Retell's voice_name for client-facing UI.
+ * Fixed set of four options; order = display order. `displayName` overrides Retell's voice_name for UI.
  *
  * Cimo (retell-Cimo): optional custom preview (Retell’s default clip may mention their product):
  *   VOICE_PREVIEW_CIMO_URL=…  (or VOICE_PREVIEW_CLARA_URL)
@@ -17,29 +15,13 @@
  */
 export const VOICE_SHORTLIST = [
   { voiceId: "retell-Cimo", displayName: "Cimo" },
-  { voiceId: "11labs-Josh", displayName: "Josh" },
-  { voiceId: "11labs-Arnold", displayName: "Arnold" },
-  { voiceId: "11labs-Sam", displayName: "Sam" },
   { voiceId: "11labs-Emily", displayName: "Emily" },
   { voiceId: "11labs-Jessica", displayName: "Jessica" },
   { voiceId: "11labs-Rachel", displayName: "Rachel" },
-  { voiceId: "11labs-Bella", displayName: "Bella" },
-  { voiceId: "11labs-Hailey", displayName: "Hailey" },
-  { voiceId: "11labs-Grace", displayName: "Grace" },
 ];
 
 /** Blocked from backfill only (shortlist rows are never filtered by this) */
 const EXCLUDED_BACKFILL_NAMES = new Set(["adrian", "alejandro"]);
-
-/**
- * Shortlist `voiceId`s absent from Retell `list-voices` (org may not expose that preset, or id casing/name changed).
- * Exposed on GET …/voice-options as `shortlistMissingVoiceIds` for debugging.
- */
-export function missingShortlistVoiceIds(retellVoices) {
-  const list = Array.isArray(retellVoices) ? retellVoices : [];
-  const ids = new Set(list.map((v) => v.voice_id).filter(Boolean));
-  return VOICE_SHORTLIST.filter((e) => !ids.has(e.voiceId)).map((e) => e.voiceId);
-}
 
 function parseMinTotal() {
   const raw = process.env.VOICE_OPTIONS_MIN_TOTAL;

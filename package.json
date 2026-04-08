@@ -5,8 +5,7 @@
   "main": "index.mjs",
   "scripts": {
     "start": "node index.mjs",
-    "dev": "node --watch index.mjs",
-    "list-retell-voices": "node scripts/list-retell-voices.mjs"
+    "dev": "node --watch index.mjs"
   },
   "engines": {
     "node": ">=18"
