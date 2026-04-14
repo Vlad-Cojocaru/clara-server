@@ -280,6 +280,8 @@ app.get("/api/onboarding/:id", requireDraftAccess, async (req, res) => {
     launch_clock_start_at: record.launch_clock_start_at,
     has_client_password: record.has_client_password ?? false,
     client_email: record.client_email ?? null,
+    agreement_signed_by_operator_at: record.agreement_signed_by_operator_at ?? null,
+    agreement_signed_by_client_at: record.agreement_signed_by_client_at ?? null,
   };
   if (session?.type === "operator" && record.client_password_plaintext != null) {
     payload.client_password_plaintext = record.client_password_plaintext;
